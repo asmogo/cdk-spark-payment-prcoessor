@@ -2,7 +2,7 @@ FROM rust:1-bookworm AS builder
 
 # Install build dependencies (protoc, ca-certificates)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    protobuf-compiler ca-certificates pkg-config && \
+    protobuf-compiler libprotobuf-dev ca-certificates pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
