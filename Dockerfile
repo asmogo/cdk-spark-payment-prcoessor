@@ -25,7 +25,7 @@ RUN useradd -m -u 10001 appuser
 WORKDIR /app
 
 # Copy the built binary
-COPY --from=builder /app/target/release/cdk-spark-payment-processor /usr/local/bin/cdk-spark-payment-processor
+COPY --from=builder /app/target/release/cdk-payment-processor-spark /usr/local/bin/cdk-payment-processor-spark
 
 EXPOSE 50051
 
@@ -33,4 +33,4 @@ ENV RUST_LOG=info
 
 USER appuser
 
-ENTRYPOINT ["/usr/local/bin/cdk-spark-payment-processor"]
+ENTRYPOINT ["/usr/local/bin/cdk-payment-processor-spark"]
