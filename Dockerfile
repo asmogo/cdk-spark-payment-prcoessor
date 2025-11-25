@@ -2,8 +2,8 @@ FROM rust:1-bookworm AS builder
 
 # Install build dependencies (protoc, ca-certificates)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    protobuf-compiler libprotobuf-dev ca-certificates pkg-config && \
-    rm -rf /var/lib/apt/lists/*
+  protobuf-compiler libprotobuf-dev ca-certificates pkg-config && \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ RUN cargo build --release
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+  rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN useradd -m -u 10001 appuser
@@ -25,7 +25,7 @@ RUN useradd -m -u 10001 appuser
 WORKDIR /app
 
 # Copy the built binary
-COPY --from=builder /app/target/release/cdk-stripe-payment-processor /usr/local/bin/cdk-stripe-payment-processor
+COPY --from=builder /app/target/release/cdk-spark-payment-processor /usr/local/bin/cdk-spark-payment-processor
 
 EXPOSE 50051
 
@@ -33,4 +33,4 @@ ENV RUST_LOG=info
 
 USER appuser
 
-ENTRYPOINT ["/usr/local/bin/cdk-stripe-payment-processor"]
+ENTRYPOINT ["/usr/local/bin/cdk-spark-payment-processor"]
