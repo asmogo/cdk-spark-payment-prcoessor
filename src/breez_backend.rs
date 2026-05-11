@@ -11,16 +11,18 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use breez_sdk_spark::{
-    BreezSdk, Config, ConnectRequest, Network, ReceivePaymentMethod, ReceivePaymentRequest, Seed,
+    BreezSdk, Config, ConnectRequest, Network, OptimizationConfig, ReceivePaymentMethod,
+    ReceivePaymentRequest, Seed,
 };
 use cdk_common::bitcoin::hashes::Hash;
 use cdk_common::nuts::{CurrencyUnit, MeltQuoteState};
 use cdk_common::payment::{
-    Bolt11Settings, CreateIncomingPaymentResponse, Event, IncomingPaymentOptions,
+    Bolt11Settings, CreateIncomingPaymentResponse, Error, Event, IncomingPaymentOptions,
     MakePaymentResponse, MintPayment, OutgoingPaymentOptions, PaymentIdentifier,
     PaymentQuoteResponse, SettingsResponse, WaitPaymentResponse,
 };
-use cdk_common::Bolt11Invoice;
+use cdk_common::util::unix_time;
+use cdk_common::{Amount, Bolt11Invoice};
 use futures_core::Stream;
 use tokio::sync::Mutex;
 
@@ -109,6 +111,15 @@ impl BreezBackend {
             prefer_spark_over_lightning: true,
             external_input_parsers: None,
             use_default_external_input_parsers: true,
+            real_time_sync_server_url: None,
+            private_enabled_default: false,
+            optimization_config: OptimizationConfig {
+                auto_enabled: true,
+                multiplicity: 5,
+            },
+            stable_balance_config: None,
+            max_concurrent_claims: 5,
+            support_lnurl_verify: false,
         };
 
         tracing::debug!("SDK config - network: Mainnet, sync_interval: 600s");
@@ -211,7 +222,6 @@ impl MintPayment for BreezBackend {
     /// Create an incoming payment request (invoice)
     async fn create_incoming_payment_request(
         &self,
-        _unit: &CurrencyUnit,
         options: IncomingPaymentOptions,
     ) -> Result<CreateIncomingPaymentResponse, Self::Err> {
         tracing::info!("Creating incoming payment request");
@@ -221,8 +231,8 @@ impl MintPayment for BreezBackend {
                     .description
                     .clone()
                     .unwrap_or_else(|| "Payment".to_string());
-                let amount_sats = if opts.amount > cdk_common::Amount::from(0) {
-                    Some(Into::<u64>::into(opts.amount))
+                let amount_sats = if opts.amount > Amount::new(0, CurrencyUnit::Sat) {
+                    Some(opts.amount.to_sat()?)
                 } else {
                     None
                 };
@@ -233,10 +243,22 @@ impl MintPayment for BreezBackend {
                     amount_sats
                 );
 
+                let expiry_secs = if let Some(expiry) = opts.unix_expiry {
+                    Some(
+                        expiry
+                            .checked_sub(unix_time())
+                            .ok_or(Error::AmountMismatch)? as u32,
+                    )
+                } else {
+                    None
+                };
+
                 let request = ReceivePaymentRequest {
                     payment_method: ReceivePaymentMethod::Bolt11Invoice {
                         description: description.clone(),
                         amount_sats,
+                        expiry_secs,
+                        payment_hash: None,
                     },
                 };
 
@@ -289,6 +311,8 @@ impl MintPayment for BreezBackend {
                     payment_request: bolt11_str.clone(),
                     amount: None,
                     token_identifier: None,
+                    conversion_options: None,
+                    fee_policy: None,
                 };
 
                 let prepare_response = self
@@ -336,7 +360,7 @@ impl MintPayment for BreezBackend {
     /// Make an outgoing payment
     async fn make_payment(
         &self,
-        _unit: &CurrencyUnit,
+        unit: &CurrencyUnit,
         options: OutgoingPaymentOptions,
     ) -> Result<MakePaymentResponse, Self::Err> {
         match options {
@@ -352,6 +376,8 @@ impl MintPayment for BreezBackend {
                     payment_request: bolt11_str.clone(),
                     amount: None,
                     token_identifier: None,
+                    conversion_options: None,
+                    fee_policy: None,
                 };
 
                 let prepare_response = self
@@ -363,15 +389,10 @@ impl MintPayment for BreezBackend {
                         cdk_common::payment::Error::Lightning(Box::new(e))
                     })?;
 
-                tracing::debug!(
-                    "Payment prepared - amount: {} sats",
-                    prepare_response.amount
-                );
-
-                // Now send the payment
                 let send_request = SendPaymentRequest {
                     prepare_response,
                     options: None,
+                    idempotency_key: None,
                 };
 
                 let send_response = self.sdk.send_payment(send_request).await.map_err(|e| {
@@ -388,7 +409,7 @@ impl MintPayment for BreezBackend {
                     payment_amount,
                     payment_fees,
                     total_spent,
-                    _unit.to_string(),
+                    unit.to_string(),
                     send_response.payment.id
                 );
 
@@ -404,7 +425,7 @@ impl MintPayment for BreezBackend {
                     payment_lookup_id: payment_identifier,
                     payment_proof: None,
                     status: MeltQuoteState::Paid,
-                    total_spent: total_spent.with_unit(CurrencyUnit::Sat),
+                    total_spent: total_spent.with_unit(unit.clone()),
                 })
             }
             _ => Err(cdk_common::payment::Error::UnsupportedPaymentOption),
@@ -437,10 +458,11 @@ impl MintPayment for BreezBackend {
                 if let SdkEvent::PaymentSucceeded { payment } = event {
                     // Extract payment hash from payment details
                     let payment_identifier = if let Some(PaymentDetails::Lightning {
-                        ref payment_hash,
+                        ref htlc_details,
                         ..
                     }) = payment.details
                     {
+                        let payment_hash = &htlc_details.payment_hash;
                         // Convert hex string to bytes
                         if let Ok(hash_bytes) = hex::decode(payment_hash) {
                             if let Ok(hash_array) = hash_bytes.try_into() {
