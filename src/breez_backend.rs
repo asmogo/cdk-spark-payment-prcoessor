@@ -215,6 +215,7 @@ impl MintPayment for BreezBackend {
                 invoice_description: false,
             }),
             bolt12: None,
+            onchain: None,
             custom: HashMap::new(),
         })
     }
@@ -351,6 +352,9 @@ impl MintPayment for BreezBackend {
                     amount: amount.with_unit(unit.clone()),
                     fee: fee.with_unit(unit.clone()),
                     state: MeltQuoteState::Unpaid,
+                    estimated_blocks: None,
+                    extra_json: None,
+                    fee_options: None,
                 })
             }
             _ => Err(cdk_common::payment::Error::UnsupportedPaymentOption),
@@ -517,13 +521,11 @@ impl MintPayment for BreezBackend {
         Ok(Box::pin(ReceiverStream::new(rx)))
     }
 
-    /// Check if wait invoice is currently active
-    fn is_wait_invoice_active(&self) -> bool {
+    fn is_payment_event_stream_active(&self) -> bool {
         self.wait_invoice_active.load(Ordering::Relaxed)
     }
 
-    /// Cancel waiting for invoice payments
-    fn cancel_wait_invoice(&self) {
+    fn cancel_payment_event_stream(&self) {
         self.wait_invoice_active.store(false, Ordering::Relaxed);
     }
 
