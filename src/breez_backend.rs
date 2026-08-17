@@ -266,7 +266,7 @@ impl MintPayment for BreezBackend {
                 tracing::debug!("Calling Breez SDK receive_payment");
                 let response = self.sdk.receive_payment(request).await.map_err(|e| {
                     tracing::error!("Breez SDK receive_payment failed: {:?}", e);
-                    cdk_common::payment::Error::Lightning(Box::new(e))
+                    cdk_common::payment::Error::Backend(Box::new(e))
                 })?;
 
                 tracing::info!("Successfully created invoice: {}", response.payment_request);
@@ -320,7 +320,7 @@ impl MintPayment for BreezBackend {
                     .sdk
                     .prepare_send_payment(prepare_request)
                     .await
-                    .map_err(|e| cdk_common::payment::Error::Lightning(Box::new(e)))?;
+                    .map_err(|e| cdk_common::payment::Error::Backend(Box::new(e)))?;
 
                 // Calculate fee from payment method
                 let fee = match &prepare_response.payment_method {
@@ -390,7 +390,7 @@ impl MintPayment for BreezBackend {
                     .await
                     .map_err(|e| {
                         tracing::error!("Failed to prepare payment: {:?}", e);
-                        cdk_common::payment::Error::Lightning(Box::new(e))
+                        cdk_common::payment::Error::Backend(Box::new(e))
                     })?;
 
                 let send_request = SendPaymentRequest {
@@ -401,7 +401,7 @@ impl MintPayment for BreezBackend {
 
                 let send_response = self.sdk.send_payment(send_request).await.map_err(|e| {
                     tracing::error!("Failed to send payment: {:?}", e);
-                    cdk_common::payment::Error::Lightning(Box::new(e))
+                    cdk_common::payment::Error::Backend(Box::new(e))
                 })?;
 
                 let payment_amount = send_response.payment.amount;
@@ -577,7 +577,7 @@ impl MintPayment for BreezBackend {
             .sdk
             .list_payments(request)
             .await
-            .map_err(|e| cdk_common::payment::Error::Lightning(Box::new(e)))?;
+            .map_err(|e| cdk_common::payment::Error::Backend(Box::new(e)))?;
 
         // Find the payment by payment request (invoice)
         let payment = response.payments.into_iter().find(|p| {
@@ -670,7 +670,7 @@ impl MintPayment for BreezBackend {
             .sdk
             .list_payments(request)
             .await
-            .map_err(|e| cdk_common::payment::Error::Lightning(Box::new(e)))?;
+            .map_err(|e| cdk_common::payment::Error::Backend(Box::new(e)))?;
 
         let payments = response.payments;
 
